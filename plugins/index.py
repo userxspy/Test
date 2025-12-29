@@ -12,15 +12,52 @@ lock = asyncio.Lock()
 
 @Client.on_callback_query(filters.regex(r'^index'))
 async def index_files(bot, query):
-    _, ident, chat, lst_msg_id, skip = query.data.split("#")
+    data_parts = query.data.split("#")
+    ident = data_parts[1]
+    
     if ident == 'yes':
+        # Show collection selection buttons
+        chat = data_parts[2]
+        lst_msg_id = data_parts[3]
+        skip = data_parts[4]
+        
+        buttons = [
+            [
+                InlineKeyboardButton('✅ PRIMARY', callback_data=f'index#start#{chat}#{lst_msg_id}#{skip}#primary'),
+                InlineKeyboardButton('📂 CLOUD', callback_data=f'index#start#{chat}#{lst_msg_id}#{skip}#cloud')
+            ],
+            [
+                InlineKeyboardButton('📦 ARCHIVES', callback_data=f'index#start#{chat}#{lst_msg_id}#{skip}#archive')
+            ],
+            [
+                InlineKeyboardButton('❌ CANCEL', callback_data='close_data')
+            ]
+        ]
+        await query.message.edit(
+            "🗂️ <b>Select Collection to Index:</b>\n\n"
+            "• <b>PRIMARY</b> - Main database\n"
+            "• <b>CLOUD</b> - Cloud storage\n"
+            "• <b>ARCHIVES</b> - Archive storage",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+    
+    elif ident == 'start':
+        # Start indexing with selected collection
+        chat = data_parts[2]
+        lst_msg_id = data_parts[3]
+        skip = data_parts[4]
+        collection = data_parts[5]
+        
         msg = query.message
-        await msg.edit("Starting Indexing...")
+        await msg.edit(f"Starting Indexing to <b>{collection.upper()}</b> collection...")
+        
         try:
             chat = int(chat)
         except:
             chat = chat
-        await index_files_to_db(int(lst_msg_id), chat, msg, bot, int(skip))
+        
+        await index_files_to_db(int(lst_msg_id), chat, msg, bot, int(skip), collection)
+    
     elif ident == 'cancel':
         temp.CANCEL = True
         await query.message.edit("Trying to cancel Indexing...")
@@ -30,9 +67,11 @@ async def index_files(bot, query):
 async def send_for_index(bot, message):
     if lock.locked():
         return await message.reply('Wait until previous process complete.')
+    
     i = await message.reply("Forward last message or send last message link.")
     msg = await bot.listen(chat_id=message.chat.id, user_id=message.from_user.id)
     await i.delete()
+    
     if msg.text and msg.text.startswith("https://t.me"):
         try:
             msg_link = msg.text.split("/")
@@ -49,6 +88,7 @@ async def send_for_index(bot, message):
     else:
         await message.reply('This is not forwarded message or link.')
         return
+    
     try:
         chat = await bot.get_chat(chat_id)
     except Exception as e:
@@ -60,6 +100,7 @@ async def send_for_index(bot, message):
     s = await message.reply("Send skip message number.")
     msg = await bot.listen(chat_id=message.chat.id, user_id=message.from_user.id)
     await s.delete()
+    
     try:
         skip = int(msg.text)
     except:
@@ -71,10 +112,15 @@ async def send_for_index(bot, message):
         InlineKeyboardButton('CLOSE', callback_data='close_data'),
     ]]
     reply_markup = InlineKeyboardMarkup(buttons)
-    await message.reply(f'Do you want to index {chat.title} channel?\nTotal Messages: <code>{last_msg_id}</code>', reply_markup=reply_markup)
+    await message.reply(
+        f'Do you want to index <b>{chat.title}</b> channel?\n'
+        f'Total Messages: <code>{last_msg_id}</code>\n'
+        f'Skip: <code>{skip}</code>', 
+        reply_markup=reply_markup
+    )
 
 
-async def index_files_to_db(lst_msg_id, chat, msg, bot, skip):
+async def index_files_to_db(lst_msg_id, chat, msg, bot, skip, collection_type="primary"):
     start_time = time.time()
     total_files = 0
     duplicate = 0
@@ -89,19 +135,49 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, skip):
         try:
             async for message in bot.iter_messages(chat, lst_msg_id, skip):
                 time_taken = get_readable_time(time.time()-start_time)
+                
                 if temp.CANCEL:
                     temp.CANCEL = False
-                    await msg.edit(f"Successfully Cancelled!\nCompleted in {time_taken}\n\nSaved <code>{total_files}</code> files to Database!\nDuplicate Files Skipped: <code>{duplicate}</code>\nDeleted Messages Skipped: <code>{deleted}</code>\nNon-Media messages skipped: <code>{no_media + unsupported}</code>\nUnsupported Media: <code>{unsupported}</code>\nErrors Occurred: <code>{errors}</code>\nBad Files Ignoref: <code>{badfiles}</code>")
+                    await msg.edit(
+                        f"<b>✅ Successfully Cancelled!</b>\n"
+                        f"📚 Collection: <code>{collection_type.upper()}</code>\n"
+                        f"⏱ Completed in: <code>{time_taken}</code>\n\n"
+                        f"📁 Saved Files: <code>{total_files}</code>\n"
+                        f"🔄 Duplicates: <code>{duplicate}</code>\n"
+                        f"🗑 Deleted: <code>{deleted}</code>\n"
+                        f"❌ No Media: <code>{no_media + unsupported}</code>\n"
+                        f"⚠️ Unsupported: <code>{unsupported}</code>\n"
+                        f"❗ Errors: <code>{errors}</code>\n"
+                        f"🚫 Bad Files: <code>{badfiles}</code>"
+                    )
                     return
+                
                 current += 1
+                
                 if current % 30 == 0:
                     btn = [[
                         InlineKeyboardButton('CANCEL', callback_data=f'index#cancel#{chat}#{lst_msg_id}#{skip}')
                     ]]
                     try:
-                        await msg.edit_text(text=f"Total messages received: <code>{current}</code>\nTotal messages saved: <code>{total_files}</code>\nDuplicate Files Skipped: <code>{duplicate}</code>\nDeleted Messages Skipped: <code>{deleted}</code>\nNon-Media messages skipped: <code>{no_media + unsupported}</code>\nUnsupported Media: <code>{unsupported}</code>\nErrors Occurred: <code>{errors}</code>\nBad Files Ignoref: <code>{badfiles}</code>", reply_markup=InlineKeyboardMarkup(btn))
+                        await msg.edit_text(
+                            text=f"<b>📊 Indexing Progress</b>\n"
+                            f"📚 Collection: <code>{collection_type.upper()}</code>\n"
+                            f"⏱ Time: <code>{time_taken}</code>\n\n"
+                            f"📨 Total Received: <code>{current}</code>\n"
+                            f"📁 Saved: <code>{total_files}</code>\n"
+                            f"🔄 Duplicates: <code>{duplicate}</code>\n"
+                            f"🗑 Deleted: <code>{deleted}</code>\n"
+                            f"❌ No Media: <code>{no_media + unsupported}</code>\n"
+                            f"⚠️ Unsupported: <code>{unsupported}</code>\n"
+                            f"❗ Errors: <code>{errors}</code>\n"
+                            f"🚫 Bad Files: <code>{badfiles}</code>", 
+                            reply_markup=InlineKeyboardMarkup(btn)
+                        )
                     except FloodWait as e:
                         await asyncio.sleep(e.value)
+                    except Exception:
+                        pass
+                
                 if message.empty:
                     deleted += 1
                     continue
@@ -111,6 +187,7 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, skip):
                 elif message.media not in [enums.MessageMediaType.VIDEO, enums.MessageMediaType.DOCUMENT]:
                     unsupported += 1
                     continue
+                
                 media = getattr(message, message.media.value, None)
                 if not media:
                     unsupported += 1
@@ -118,17 +195,33 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, skip):
                 elif not (str(media.file_name).lower()).endswith(tuple(INDEX_EXTENSIONS)):
                     unsupported += 1
                     continue
+                
                 media.caption = message.caption
                 file_name = re.sub(r"@\w+|(_|\-|\.|\+)", " ", str(media.file_name))
-                sts = await save_file(media)
+                
+                # Save to selected collection
+                sts = await save_file(media, collection_type=collection_type)
+                
                 if sts == 'suc':
                     total_files += 1
                 elif sts == 'dup':
                     duplicate += 1
                 elif sts == 'err':
                     errors += 1
+                    
         except Exception as e:
             await msg.reply(f'Index canceled due to Error - {e}')
         else:
             time_taken = get_readable_time(time.time()-start_time)
-            await msg.edit(f'Succesfully saved <code>{total_files}</code> to Database!\nCompleted in {time_taken}\n\nDuplicate Files Skipped: <code>{duplicate}</code>\nDeleted Messages Skipped: <code>{deleted}</code>\nNon-Media messages skipped: <code>{no_media + unsupported}</code>\nUnsupported Media: <code>{unsupported}</code>\nErrors Occurred: <code>{errors}</code>\nBad Files Ignoref: <code>{badfiles}</code>')
+            await msg.edit(
+                f'<b>✅ Successfully Indexed!</b>\n'
+                f'📚 Collection: <code>{collection_type.upper()}</code>\n'
+                f'⏱ Completed in: <code>{time_taken}</code>\n\n'
+                f'📁 Saved Files: <code>{total_files}</code>\n'
+                f'🔄 Duplicates: <code>{duplicate}</code>\n'
+                f'🗑 Deleted: <code>{deleted}</code>\n'
+                f'❌ No Media: <code>{no_media + unsupported}</code>\n'
+                f'⚠️ Unsupported: <code>{unsupported}</code>\n'
+                f'❗ Errors: <code>{errors}</code>\n'
+                f'🚫 Bad Files: <code>{badfiles}</code>'
+            )
