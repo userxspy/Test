@@ -1,7 +1,7 @@
 import os
 import random
 import asyncio
-from time import time as time_now, monotonic
+from time import time as time_now
 from datetime import datetime, timedelta
 
 from Script import script
@@ -48,6 +48,13 @@ from utils import (
 # ─────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────
+def progress_bar(value, total, size=12):
+    if total <= 0:
+        return "░" * size
+    filled = int((value / total) * size)
+    return "█" * filled + "░" * (size - filled)
+
+
 async def del_stk(s):
     await asyncio.sleep(3)
     try:
@@ -86,16 +93,16 @@ async def start(client, message):
 
     # ───── PRIVATE START ─────
 
-    # ✅ REACTION SAFE
+    # Reaction safe
     try:
         if REACTIONS:
-            await message.react(emoji=random.choice(REACTIONS), big=True)
+            await message.react(random.choice(REACTIONS), big=True)
         else:
             await message.react("⚡️", big=True)
     except:
         pass
 
-    # ✅ STICKER SAFE (FIXED)
+    # Sticker safe
     if STICKERS:
         try:
             stk = await client.send_sticker(
@@ -105,9 +112,8 @@ async def start(client, message):
             asyncio.create_task(del_stk(stk))
         except:
             pass
-    # if STICKERS empty → silently skip
 
-    # ───── USER DB ─────
+    # User DB
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
         await client.send_message(
@@ -118,7 +124,7 @@ async def start(client, message):
             )
         )
 
-    # ───── PREMIUM CHECK ─────
+    # Premium check
     if not await is_premium(message.from_user.id, client) and message.from_user.id not in ADMINS:
         return await message.reply_photo(
             random.choice(PICS),
@@ -131,7 +137,7 @@ async def start(client, message):
             ]])
         )
 
-    # ───── NORMAL START UI ─────
+    # Normal start UI
     if len(message.command) == 1:
         await message.reply_photo(
             random.choice(PICS),
@@ -156,30 +162,52 @@ async def start(client, message):
 
 
 # ─────────────────────────────────────
-# STATS (SINGLE DB)
+# STATS (SINGLE DB + PROGRESS)
 # ─────────────────────────────────────
 @Client.on_message(filters.command("stats") & filters.user(ADMINS))
 async def stats(_, message):
+
     files = db_count_documents()
+    primary = files.get("primary", 0)
+    cloud = files.get("cloud", 0)
+    archive = files.get("archive", 0)
+    total_files = files.get("total", 0)
+
     users = await db.total_users_count()
     chats = await db.total_chat_count()
     prm = db.get_premium_count()
 
-    used_files_db_size = get_size(await db.get_files_db_size())
+    p_bar = progress_bar(primary, total_files)
+    c_bar = progress_bar(cloud, total_files)
+    a_bar = progress_bar(archive, total_files)
+
+    p_pct = round((primary / total_files) * 100, 1) if total_files else 0
+    c_pct = round((cloud / total_files) * 100, 1) if total_files else 0
+    a_pct = round((archive / total_files) * 100, 1) if total_files else 0
+
+    # ✅ ONLY ONE DB SIZE
     used_data_db_size = get_size(await db.get_data_db_size())
     uptime = get_readable_time(time_now() - temp.START_TIME)
 
-    await message.reply_text(
-        script.STATUS_TXT.format(
-            users,
-            prm,
-            chats,
-            files,
-            used_files_db_size,
-            used_data_db_size,
-            uptime
-        )
-    )
+    text = f"""
+📊 <b>Bot Statistics</b>
+
+👥 Users   : {users}
+💎 Premium : {prm}
+👥 Chats   : {chats}
+
+📁 <b>Files Distribution</b>
+
+Primary   {p_bar}  {primary} ({p_pct}%)
+Cloud     {c_bar}  {cloud} ({c_pct}%)
+Archive   {a_bar}  {archive} ({a_pct}%)
+
+🧮 Total Files : {total_files}
+💾 DB Size     : {used_data_db_size}
+⏰ Uptime      : {uptime}
+"""
+
+    await message.reply_text(text, parse_mode=enums.ParseMode.HTML)
 
 
 # ─────────────────────────────────────
@@ -187,12 +215,11 @@ async def stats(_, message):
 # ─────────────────────────────────────
 async def get_grp_stg(group_id):
     """
-    Return inline buttons for group settings panel
-    (Used by pm_filter.py)
+    Used by pm_filter.py
     """
     settings = await get_settings(group_id)
 
-    buttons = [
+    return [
         [
             InlineKeyboardButton(
                 "✏️ Edit File Caption",
@@ -218,4 +245,3 @@ async def get_grp_stg(group_id):
             )
         ]
     ]
-    return buttons
