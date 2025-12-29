@@ -2,7 +2,7 @@ import os
 import random
 import asyncio
 from time import time as time_now
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from Script import script
 from hydrogram import Client, filters, enums
@@ -17,12 +17,15 @@ from database.ia_filterdb import (
 from database.users_chats_db import db
 
 from info import (
+    IS_PREMIUM,
     URL,
+    BIN_CHANNEL,
     STICKERS,
     ADMINS,
     DELETE_TIME,
     LOG_CHANNEL,
     PICS,
+    IS_STREAM,
     REACTIONS,
     PM_FILE_DELETE_TIME
 )
@@ -31,8 +34,6 @@ from utils import (
     is_premium,
     get_settings,
     get_size,
-    is_check_admin,
-    save_group_settings,
     temp,
     get_readable_time,
     get_wish
@@ -41,12 +42,6 @@ from utils import (
 # ─────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────
-def progress_bar(value, total, size=12):
-    if total <= 0:
-        return "░" * size
-    filled = int((value / total) * size)
-    return "█" * filled + "░" * (size - filled)
-
 async def del_stk(msg):
     await asyncio.sleep(3)
     try:
@@ -62,7 +57,7 @@ async def del_stk(msg):
 async def start(client, message):
 
     # ───── GROUP START ─────
-    if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+    if message.chat.type in (enums.ChatType.GROUP, enums.ChatType.SUPERGROUP):
         if not await db.get_chat(message.chat.id):
             total = await client.get_chat_members_count(message.chat.id)
             username = f"@{message.chat.username}" if message.chat.username else "Private"
@@ -77,13 +72,12 @@ async def start(client, message):
             )
             await db.add_chat(message.chat.id, message.chat.title)
 
-        await message.reply(
-            f"<b>Hey {message.from_user.mention}, {get_wish()}</b>"
+        return await message.reply(
+            f"<b>ʜᴇʏ {message.from_user.mention}, <i>{get_wish()}</i>\n"
+            f"ʜᴏᴡ ᴄᴀɴ ɪ ʜᴇʟᴘ ʏᴏᴜ??</b>"
         )
-        return
 
     # ───── PRIVATE START ─────
-
     # reaction safe
     try:
         if REACTIONS:
@@ -102,7 +96,7 @@ async def start(client, message):
         except:
             pass
 
-    # user db
+    # ───── USER DB ─────
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
         await client.send_message(
@@ -113,16 +107,78 @@ async def start(client, message):
             )
         )
 
-    # premium check
+    # ───── PREMIUM CHECK ─────
     if not await is_premium(message.from_user.id, client) and message.from_user.id not in ADMINS:
         return await message.reply_photo(
             random.choice(PICS),
-            caption="❌ This bot is only for Premium users and Admins!"
+            caption="❌ This bot is only for Premium users and Admins!",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "🤑 Buy Premium",
+                    url=f"https://t.me/{temp.U_NAME}?start=premium"
+                )
+            ]])
         )
 
-    # normal ui
+    # ─────────────────────────────────────────
+    # 🔥 FILE OPEN HANDLER (MISSING PART FIXED)
+    # ─────────────────────────────────────────
+    if len(message.command) > 1 and message.command[1].startswith("file_"):
+
+        try:
+            _, grp_id, file_id = message.command[1].split("_", 2)
+        except:
+            return await message.reply("❌ Invalid file request")
+
+        file = await get_file_details(file_id)
+        if not file:
+            return await message.reply("❌ File not found")
+
+        settings = await get_settings(int(grp_id))
+
+        caption = settings["caption"].format(
+            file_name=file["file_name"],
+            file_size=get_size(file["file_size"]),
+            file_caption=file.get("caption", "")
+        )
+
+        # Buttons
+        if IS_STREAM:
+            buttons = [
+                [
+                    InlineKeyboardButton(
+                        "▶️ Watch / Download",
+                        callback_data=f"stream#{file_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton("❌ Close", callback_data="close_data")
+                ]
+            ]
+        else:
+            buttons = [[InlineKeyboardButton("❌ Close", callback_data="close_data")]]
+
+        sent = await client.send_cached_media(
+            chat_id=message.chat.id,
+            file_id=file["_id"],
+            caption=caption,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            protect_content=False
+        )
+
+        # Auto delete in PM
+        if PM_FILE_DELETE_TIME:
+            await asyncio.sleep(PM_FILE_DELETE_TIME)
+            try:
+                await sent.delete()
+            except:
+                pass
+
+        return
+
+    # ───── NORMAL START UI ─────
     if len(message.command) == 1:
-        await message.reply_photo(
+        return await message.reply_photo(
             random.choice(PICS),
             caption=script.START_TXT.format(
                 message.from_user.mention,
@@ -134,129 +190,10 @@ async def start(client, message):
                         "+ ADD ME TO YOUR GROUP +",
                         url=f"https://t.me/{temp.U_NAME}?startgroup=start"
                     )
+                ],
+                [
+                    InlineKeyboardButton("👨‍🚒 HELP", callback_data="help"),
+                    InlineKeyboardButton("📚 ABOUT", callback_data="about")
                 ]
             ])
         )
-
-
-# ─────────────────────────────────────
-# FILE START HANDLER
-# ─────────────────────────────────────
-@Client.on_message(filters.command("start") & filters.regex(r"file_"))
-async def file_start(client, message):
-
-    try:
-        _, file_id = message.text.split("_", 1)
-    except:
-        return
-
-    file = await get_file_details(file_id)
-    if not file:
-        return await message.reply("❌ File not found")
-
-    btn = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "▶️ Watch / Download",
-                callback_data=f"stream#{file_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton("❌ Close", callback_data="close_data")
-        ]
-    ])
-
-    sent = await client.send_cached_media(
-        chat_id=message.chat.id,
-        file_id=file["file_id"],
-        caption=f"<b>{file['file_name']}</b>",
-        reply_markup=btn
-    )
-
-    # auto delete
-    await asyncio.sleep(PM_FILE_DELETE_TIME)
-    try:
-        await sent.delete()
-    except:
-        pass
-
-
-# ─────────────────────────────────────
-# WATCH / DOWNLOAD BUTTON
-# ─────────────────────────────────────
-@Client.on_callback_query(filters.regex(r"^stream#"))
-async def stream_file(client, query):
-
-    file_id = query.data.split("#", 1)[1]
-    file = await get_file_details(file_id)
-
-    if not file:
-        return await query.answer("File expired", show_alert=True)
-
-    watch = f"{URL}/watch/{file_id}"
-    download = f"{URL}/download/{file_id}"
-
-    await query.message.edit_reply_markup(
-        InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("▶️ Watch Online", url=watch),
-                InlineKeyboardButton("⬇️ Download", url=download)
-            ],
-            [
-                InlineKeyboardButton("❌ Close", callback_data="close_data")
-            ]
-        ])
-    )
-
-
-# ─────────────────────────────────────
-# CLOSE BUTTON
-# ─────────────────────────────────────
-@Client.on_callback_query(filters.regex("^close_data$"))
-async def close_btn(_, query):
-    try:
-        await query.message.delete()
-    except:
-        pass
-
-
-# ─────────────────────────────────────
-# STATS (ADMIN)
-# ─────────────────────────────────────
-@Client.on_message(filters.command("stats") & filters.user(ADMINS))
-async def stats(_, message):
-
-    files = db_count_documents()
-    primary = files.get("primary", 0)
-    cloud = files.get("cloud", 0)
-    archive = files.get("archive", 0)
-    total = files.get("total", 0)
-
-    users = await db.total_users_count()
-    chats = await db.total_chat_count()
-    prm = db.get_premium_count()
-
-    p_bar = progress_bar(primary, total)
-    c_bar = progress_bar(cloud, total)
-    a_bar = progress_bar(archive, total)
-
-    uptime = get_readable_time(time_now() - temp.START_TIME)
-
-    text = f"""
-📊 <b>Bot Statistics</b>
-
-👥 Users   : {users}
-💎 Premium : {prm}
-👥 Chats   : {chats}
-
-📁 <b>Files</b>
-
-Primary   {p_bar}  {primary}
-Cloud     {c_bar}  {cloud}
-Archive   {a_bar}  {archive}
-
-🧮 Total : {total}
-⏰ Uptime : {uptime}
-"""
-
-    await message.reply_text(text, parse_mode=enums.ParseMode.HTML)
