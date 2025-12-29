@@ -39,11 +39,15 @@ class Database:
         "caption": FILE_CAPTION
     }
 
+    # ✅ Enhanced default premium settings (synced with Premium.py)
     default_prm = {
         "expire": "",
         "trial": False,
         "plan": "",
-        "premium": False
+        "premium": False,
+        "reminded_24h": False,
+        "reminded_6h": False,
+        "reminded_1h": False
     }
 
     def __init__(self):
@@ -72,6 +76,10 @@ class Database:
 
     async def total_users_count(self):
         return self.users.count_documents({})
+    
+    async def get_all_users(self):
+        """Get all users (for broadcast)"""
+        return self.users.find({})
 
     async def delete_user(self, user_id):
         self.users.delete_many({"id": int(user_id)})
@@ -146,12 +154,24 @@ class Database:
         grp = self.groups.find_one({"id": int(group_id)})
         return grp.get("settings", self.default_setgs) if grp else self.default_setgs
 
-    # ───────── PREMIUM ─────────
+    # ───────── PREMIUM (Enhanced for Premium.py) ─────────
     def get_plan(self, user_id):
+        """Get user's premium plan with all reminder flags"""
         st = self.premium.find_one({"id": int(user_id)})
-        return st["status"] if st else self.default_prm
+        if st:
+            # ✅ Ensure all reminder flags exist
+            status = st["status"]
+            if "reminded_24h" not in status:
+                status["reminded_24h"] = False
+            if "reminded_6h" not in status:
+                status["reminded_6h"] = False
+            if "reminded_1h" not in status:
+                status["reminded_1h"] = False
+            return status
+        return self.default_prm.copy()
 
     def update_plan(self, user_id, data):
+        """Update user's premium plan"""
         if not self.premium.find_one({"id": int(user_id)}):
             self.premium.insert_one({"id": int(user_id), "status": data})
         else:
@@ -161,10 +181,24 @@ class Database:
             )
 
     def get_premium_count(self):
+        """Get total count of active premium users"""
         return self.premium.count_documents({"status.premium": True})
 
     def get_premium_users(self):
+        """Get all premium users (active + expired)"""
         return self.premium.find({})
+    
+    def get_active_premium_users(self):
+        """Get only active premium users"""
+        return self.premium.find({"status.premium": True})
+    
+    def reset_reminder_flags(self, user_id):
+        """Reset all reminder flags for a user (useful when extending plan)"""
+        mp = self.get_plan(user_id)
+        mp["reminded_24h"] = False
+        mp["reminded_6h"] = False
+        mp["reminded_1h"] = False
+        self.update_plan(user_id, mp)
 
     # ───────── CONNECTIONS ─────────
     def add_connect(self, group_id, user_id):
@@ -183,6 +217,17 @@ class Database:
     def get_connections(self, user_id):
         user = self.connections.find_one({"_id": int(user_id)})
         return user["group_ids"] if user else []
+    
+    def delete_connection(self, user_id, group_id):
+        """Remove specific group connection"""
+        self.connections.update_one(
+            {"_id": int(user_id)},
+            {"$pull": {"group_ids": group_id}}
+        )
+    
+    def delete_all_connections(self, user_id):
+        """Remove all connections for a user"""
+        self.connections.delete_one({"_id": int(user_id)})
 
     # ───────── BOT SETTINGS ─────────
     def update_bot_sttgs(self, var, val):
@@ -209,6 +254,7 @@ class Database:
     async def get_banned(self):
         """
         Used at bot startup
+        Returns list of banned users and disabled chats
         """
         banned_users = []
         banned_chats = []
