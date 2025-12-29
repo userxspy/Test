@@ -93,7 +93,7 @@ async def start(client, message):
 
     # ───── PRIVATE START ─────
 
-    # Reaction safe
+    # reaction safe
     try:
         if REACTIONS:
             await message.react(random.choice(REACTIONS), big=True)
@@ -102,18 +102,15 @@ async def start(client, message):
     except:
         pass
 
-    # Sticker safe
+    # sticker safe
     if STICKERS:
         try:
-            stk = await client.send_sticker(
-                message.chat.id,
-                random.choice(STICKERS)
-            )
+            stk = await client.send_sticker(message.chat.id, random.choice(STICKERS))
             asyncio.create_task(del_stk(stk))
         except:
             pass
 
-    # User DB
+    # user db
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
         await client.send_message(
@@ -124,7 +121,7 @@ async def start(client, message):
             )
         )
 
-    # Premium check
+    # ───── PREMIUM CHECK ─────
     if not await is_premium(message.from_user.id, client) and message.from_user.id not in ADMINS:
         return await message.reply_photo(
             random.choice(PICS),
@@ -137,7 +134,52 @@ async def start(client, message):
             ]])
         )
 
-    # Normal start UI
+    # ───── FILE DEEP LINK (FIXED) ─────
+    if len(message.command) == 2 and message.command[1].startswith("file_"):
+        try:
+            _, grp_id, file_id = message.command[1].split("_", 2)
+            grp_id = int(grp_id)
+        except:
+            return await message.reply("❌ Invalid file link")
+
+        file = await get_file_details(file_id)
+        if not file:
+            return await message.reply("❌ File not found or deleted")
+
+        settings = await get_settings(grp_id)
+
+        caption = settings["caption"].format(
+            file_name=file["file_name"],
+            file_size=get_size(file["file_size"]),
+            file_caption=file.get("caption", "")
+        )
+
+        btn = None
+        if IS_STREAM:
+            btn = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "▶️ Watch / Download",
+                    callback_data=f"stream#{file_id}"
+                )
+            ]])
+
+        sent = await client.send_cached_media(
+            chat_id=message.chat.id,
+            file_id=file["_id"],
+            caption=caption,
+            reply_markup=btn,
+            protect_content=False
+        )
+
+        await asyncio.sleep(PM_FILE_DELETE_TIME)
+        try:
+            await sent.delete()
+        except:
+            pass
+
+        return
+
+    # ───── NORMAL START UI ─────
     if len(message.command) == 1:
         await message.reply_photo(
             random.choice(PICS),
@@ -185,7 +227,6 @@ async def stats(_, message):
     c_pct = round((cloud / total_files) * 100, 1) if total_files else 0
     a_pct = round((archive / total_files) * 100, 1) if total_files else 0
 
-    # ✅ ONLY ONE DB SIZE
     used_data_db_size = get_size(await db.get_data_db_size())
     uptime = get_readable_time(time_now() - temp.START_TIME)
 
@@ -211,12 +252,9 @@ Archive   {a_bar}  {archive} ({a_pct}%)
 
 
 # ─────────────────────────────────────
-# GROUP SETTINGS UI
+# GROUP SETTINGS UI (USED BY pm_filter)
 # ─────────────────────────────────────
 async def get_grp_stg(group_id):
-    """
-    Used by pm_filter.py
-    """
     settings = await get_settings(group_id)
 
     return [
