@@ -49,18 +49,16 @@ async def is_check_admin(bot, chat_id, user_id):
 async def is_premium(user_id, bot):
     if not IS_PREMIUM:
         return True
-
     if user_id in ADMINS:
         return True
 
     mp = db.get_plan(user_id)
     if mp.get("premium"):
-        expire = mp.get("expire")
-        if expire and expire < datetime.now():
+        if mp.get("expire") and mp["expire"] < datetime.now():
             try:
                 await bot.send_message(
                     user_id,
-                    f"❌ Your premium {mp.get('plan')} plan has expired."
+                    f"Your premium {mp.get('plan')} plan has expired."
                 )
             except Exception:
                 pass
@@ -73,7 +71,6 @@ async def is_premium(user_id, bot):
             db.update_plan(user_id, mp)
             return False
         return True
-
     return False
 
 
@@ -81,11 +78,11 @@ async def check_premium(bot):
     while True:
         for p in db.get_premium_users():
             mp = p.get("status", {})
-            if mp.get("premium") and mp.get("expire") and mp["expire"] < datetime.now():
+            if mp.get("premium") and mp.get("expire") < datetime.now():
                 try:
                     await bot.send_message(
                         p["id"],
-                        f"❌ Your premium {mp.get('plan')} plan has expired."
+                        f"Your premium {mp.get('plan')} plan has expired."
                     )
                 except Exception:
                     pass
@@ -153,12 +150,20 @@ async def save_group_settings(group_id, key, value):
 
 
 # ─────────────────────────────────────────────
-# 🖼 IMAGE → LINK (USED BY /img_2_link)
+# 🚫 FORCE SUB REMOVED (DUMMY)
+# ─────────────────────────────────────────────
+async def is_subscribed(bot, query):
+    """
+    Force subscribe system removed.
+    Dummy function for compatibility.
+    """
+    return []
+
+
+# ─────────────────────────────────────────────
+# 🖼 IMAGE UPLOAD (img_2_link)
 # ─────────────────────────────────────────────
 def upload_image(file_path: str):
-    """
-    Upload image to uguu.se and return direct URL
-    """
     try:
         with open(file_path, "rb") as f:
             response = requests.post(
@@ -170,7 +175,8 @@ def upload_image(file_path: str):
             data = response.json()
             return data["files"][0]["url"].replace("\\/", "/")
     except Exception:
-        return None
+        pass
+    return None
 
 
 # ─────────────────────────────────────────────
@@ -211,7 +217,6 @@ async def get_seconds(time_string):
         return 0
 
     value, unit = int(match.group(1)), match.group(2)
-
     return {
         "s": value,
         "min": value * 60,
