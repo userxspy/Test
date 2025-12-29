@@ -27,7 +27,6 @@ from database.users_chats_db import db
 from database.ia_filterdb import get_search_results
 
 BUTTONS = {}
-CAP = {}
 
 # ─────────────────────────────────────────────
 # 🔍 PRIVATE SEARCH (ADMIN + PREMIUM)
@@ -42,8 +41,8 @@ async def pm_search(client, message):
             "❌ This bot is only for Premium users and Admins!"
         )
 
-    # Direct search without "Searching..." message
-    await auto_filter(client, message, collection="primary")
+    # Direct ultra-fast search
+    await auto_filter(client, message, collection_type="primary")
 
 
 # ─────────────────────────────────────────────
@@ -86,39 +85,43 @@ async def group_search(client, message):
         await message.delete()
         return await message.reply("Links not allowed here!")
 
-    # Direct search without "Searching..." message
-    await auto_filter(client, message, collection="primary")
+    # Direct ultra-fast search
+    await auto_filter(client, message, collection_type="primary")
 
 
 # ─────────────────────────────────────────────
-# 🔁 NEXT/PREV PAGE
+# 🔁 NAVIGATION (PREV/NEXT)
 # ─────────────────────────────────────────────
-@Client.on_callback_query(filters.regex(r"^navigate_"))
+@Client.on_callback_query(filters.regex(r"^nav_"))
 async def navigate_page(bot, query):
-    _, req, key, offset, collection = query.data.split("_", 4)
-
-    if int(req) != query.from_user.id:
-        return await query.answer("Not for you!", show_alert=True)
-
     try:
+        _, req, key, offset, collection_type = query.data.split("_", 4)
+        req = int(req)
         offset = int(offset)
-    except Exception:
-        offset = 0
+    except:
+        return await query.answer("Invalid request!", show_alert=True)
+
+    if req != query.from_user.id:
+        return await query.answer("Not for you!", show_alert=True)
 
     search = BUTTONS.get(key)
     if not search:
         return await query.answer("Search expired!", show_alert=True)
 
-    files, n_offset, p_offset, total = await get_search_results(
-        search, offset=offset, collection=collection
+    # Get results
+    files, next_offset, total = await get_search_results(
+        search,
+        max_results=MAX_BTN,
+        offset=offset,
+        collection_type=collection_type
     )
     
     if not files:
-        return await query.answer("No results found!", show_alert=True)
+        return await query.answer("No more results!", show_alert=True)
 
     temp.FILES[key] = files
 
-    # Build results text
+    # Build results
     files_text = ""
     for file in files:
         files_text += (
@@ -127,96 +130,102 @@ async def navigate_page(bot, query):
             f"[{get_size(file['file_size'])}] {file['file_name']}</a>\n\n"
         )
 
+    # Calculate pages
     current_page = (offset // MAX_BTN) + 1
-    total_pages = math.ceil(total / MAX_BTN) if total else 1
+    total_pages = math.ceil(total / MAX_BTN) if total > 0 else 1
 
     cap = (
         f"<b>👑 Search: {search}\n"
-        f"🎬 Total Files: {total}\n"
-        f"📚 Collection: {collection.upper()}\n"
-        f"📄 Page: {current_page} / {total_pages}</b>\n\n"
+        f"🎬 Total: {total}\n"
+        f"📚 Source: {collection_type.upper()}\n"
+        f"📄 Page: {current_page}/{total_pages}</b>\n\n"
     )
 
-    # Build navigation buttons
-    nav_btns = []
+    # Build buttons
+    buttons = []
     
-    # Prev and Next buttons
-    page_nav = []
-    if p_offset is not None:
-        page_nav.append(
-            InlineKeyboardButton(
-                "« ᴘʀᴇᴠ",
-                callback_data=f"navigate_{req}_{key}_{p_offset}_{collection}"
-            )
+    # Navigation row
+    nav_row = []
+    prev_offset = offset - MAX_BTN
+    
+    if prev_offset >= 0:
+        nav_row.append(
+            InlineKeyboardButton("« ᴘʀᴇᴠ", callback_data=f"nav_{req}_{key}_{prev_offset}_{collection_type}")
         )
     
-    page_nav.append(
-        InlineKeyboardButton(
-            f"📄 {current_page}/{total_pages}",
-            callback_data="pages"
-        )
+    nav_row.append(
+        InlineKeyboardButton(f"📄 {current_page}/{total_pages}", callback_data="pages")
     )
     
-    if n_offset is not None:
-        page_nav.append(
-            InlineKeyboardButton(
-                "ɴᴇxᴛ »",
-                callback_data=f"navigate_{req}_{key}_{n_offset}_{collection}"
-            )
+    if next_offset:
+        nav_row.append(
+            InlineKeyboardButton("ɴᴇxᴛ »", callback_data=f"nav_{req}_{key}_{next_offset}_{collection_type}")
         )
     
-    if page_nav:
-        nav_btns.append(page_nav)
+    buttons.append(nav_row)
 
-    # Collection selection buttons
-    collection_btns = []
-    for coll in ["primary", "cloud", "archives"]:
-        btn_text = f"{'✅' if coll == collection else '📂'} {coll.upper()}"
-        collection_btns.append(
+    # Collection row
+    coll_row = []
+    for coll in ["primary", "cloud", "archive"]:
+        emoji = "✅" if coll == collection_type else "📂"
+        coll_row.append(
             InlineKeyboardButton(
-                btn_text,
-                callback_data=f"collection_{req}_{key}_{coll}"
+                f"{emoji} {coll.upper()[:3]}",
+                callback_data=f"coll_{req}_{key}_{coll}"
             )
         )
-    nav_btns.append(collection_btns)
+    buttons.append(coll_row)
 
     # Close button
-    nav_btns.append([InlineKeyboardButton("❌ ᴄʟᴏsᴇ", callback_data="close_data")])
+    buttons.append([InlineKeyboardButton("❌ ᴄʟᴏsᴇ", callback_data="close_data")])
 
-    await query.message.edit_text(
-        cap + files_text,
-        reply_markup=InlineKeyboardMarkup(nav_btns),
-        disable_web_page_preview=True,
-        parse_mode=enums.ParseMode.HTML
-    )
+    try:
+        await query.message.edit_text(
+            cap + files_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            disable_web_page_preview=True,
+            parse_mode=enums.ParseMode.HTML
+        )
+    except Exception as e:
+        # Ignore "message not modified" errors
+        if "MESSAGE_NOT_MODIFIED" not in str(e):
+            raise
+    
     await query.answer()
 
 
 # ─────────────────────────────────────────────
 # 🗂️ COLLECTION SWITCH
 # ─────────────────────────────────────────────
-@Client.on_callback_query(filters.regex(r"^collection_"))
+@Client.on_callback_query(filters.regex(r"^coll_"))
 async def switch_collection(bot, query):
-    _, req, key, collection = query.data.split("_", 3)
+    try:
+        _, req, key, collection_type = query.data.split("_", 3)
+        req = int(req)
+    except:
+        return await query.answer("Invalid request!", show_alert=True)
 
-    if int(req) != query.from_user.id:
+    if req != query.from_user.id:
         return await query.answer("Not for you!", show_alert=True)
 
     search = BUTTONS.get(key)
     if not search:
         return await query.answer("Search expired!", show_alert=True)
 
-    # Search from beginning of new collection
-    files, n_offset, p_offset, total = await get_search_results(
-        search, offset=0, collection=collection
+    # Search in new collection from start
+    files, next_offset, total = await get_search_results(
+        search,
+        max_results=MAX_BTN,
+        offset=0,
+        collection_type=collection_type
     )
     
     if not files:
-        return await query.answer(f"No results in {collection.upper()}!", show_alert=True)
+        return await query.answer(f"No results in {collection_type.upper()}!", show_alert=True)
 
     temp.FILES[key] = files
 
-    # Build results text
+    # Build results
     files_text = ""
     for file in files:
         files_text += (
@@ -225,64 +234,58 @@ async def switch_collection(bot, query):
             f"[{get_size(file['file_size'])}] {file['file_name']}</a>\n\n"
         )
 
-    total_pages = math.ceil(total / MAX_BTN) if total else 1
+    total_pages = math.ceil(total / MAX_BTN) if total > 0 else 1
 
     cap = (
         f"<b>👑 Search: {search}\n"
-        f"🎬 Total Files: {total}\n"
-        f"📚 Collection: {collection.upper()}\n"
-        f"📄 Page: 1 / {total_pages}</b>\n\n"
+        f"🎬 Total: {total}\n"
+        f"📚 Source: {collection_type.upper()}\n"
+        f"📄 Page: 1/{total_pages}</b>\n\n"
     )
 
-    # Build navigation buttons
-    nav_btns = []
+    # Build buttons
+    buttons = []
     
-    # Prev and Next buttons
-    page_nav = []
-    page_nav.append(
-        InlineKeyboardButton(
-            f"📄 1/{total_pages}",
-            callback_data="pages"
-        )
-    )
+    # Navigation row
+    nav_row = [InlineKeyboardButton(f"📄 1/{total_pages}", callback_data="pages")]
     
-    if n_offset is not None:
-        page_nav.append(
-            InlineKeyboardButton(
-                "ɴᴇxᴛ »",
-                callback_data=f"navigate_{req}_{key}_{n_offset}_{collection}"
-            )
+    if next_offset:
+        nav_row.append(
+            InlineKeyboardButton("ɴᴇxᴛ »", callback_data=f"nav_{req}_{key}_{next_offset}_{collection_type}")
         )
     
-    if page_nav:
-        nav_btns.append(page_nav)
+    buttons.append(nav_row)
 
-    # Collection selection buttons
-    collection_btns = []
-    for coll in ["primary", "cloud", "archives"]:
-        btn_text = f"{'✅' if coll == collection else '📂'} {coll.upper()}"
-        collection_btns.append(
+    # Collection row
+    coll_row = []
+    for coll in ["primary", "cloud", "archive"]:
+        emoji = "✅" if coll == collection_type else "📂"
+        coll_row.append(
             InlineKeyboardButton(
-                btn_text,
-                callback_data=f"collection_{req}_{key}_{coll}"
+                f"{emoji} {coll.upper()[:3]}",
+                callback_data=f"coll_{req}_{key}_{coll}"
             )
         )
-    nav_btns.append(collection_btns)
+    buttons.append(coll_row)
 
     # Close button
-    nav_btns.append([InlineKeyboardButton("❌ ᴄʟᴏsᴇ", callback_data="close_data")])
+    buttons.append([InlineKeyboardButton("❌ ᴄʟᴏsᴇ", callback_data="close_data")])
 
-    await query.message.edit_text(
-        cap + files_text,
-        reply_markup=InlineKeyboardMarkup(nav_btns),
-        disable_web_page_preview=True,
-        parse_mode=enums.ParseMode.HTML
-    )
-    await query.answer(f"Switched to {collection.upper()} collection! 🔄")
+    try:
+        await query.message.edit_text(
+            cap + files_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            disable_web_page_preview=True,
+            parse_mode=enums.ParseMode.HTML
+        )
+        await query.answer(f"Switched to {collection_type.upper()}! 🔄")
+    except Exception as e:
+        if "MESSAGE_NOT_MODIFIED" not in str(e):
+            await query.answer("Failed to switch!", show_alert=True)
 
 
 # ─────────────────────────────────────────────
-# ❌ CLOSE
+# ❌ CLOSE & PAGE INFO
 # ─────────────────────────────────────────────
 @Client.on_callback_query(filters.regex(r"^close_data$"))
 async def close_cb(bot, query):
@@ -297,19 +300,21 @@ async def pages_cb(bot, query):
 # ─────────────────────────────────────────────
 # 🚀 AUTO FILTER CORE - ULTRA FAST
 # ─────────────────────────────────────────────
-async def auto_filter(client, msg, collection="primary"):
+async def auto_filter(client, msg, collection_type="primary"):
     message = msg
     settings = await get_settings(message.chat.id)
 
     search = message.text.strip()
     
-    # Ultra-fast search - no intermediate message
-    files, n_offset, p_offset, total = await get_search_results(
-        search, offset=0, collection=collection
+    # Ultra-fast direct search (NO intermediate message)
+    files, next_offset, total = await get_search_results(
+        search,
+        max_results=MAX_BTN,
+        offset=0,
+        collection_type=collection_type
     )
 
     if not files:
-        # Send and auto-delete "not found" message
         k = await message.reply(f"❌ I can't find <b>{search}</b>")
         await asyncio.sleep(5)
         await k.delete()
@@ -319,7 +324,7 @@ async def auto_filter(client, msg, collection="primary"):
     temp.FILES[key] = files
     BUTTONS[key] = search
 
-    # Build results text
+    # Build results
     files_text = ""
     for file in files:
         files_text += (
@@ -328,57 +333,47 @@ async def auto_filter(client, msg, collection="primary"):
             f"[{get_size(file['file_size'])}] {file['file_name']}</a>\n\n"
         )
 
-    total_pages = math.ceil(total / MAX_BTN) if total else 1
+    total_pages = math.ceil(total / MAX_BTN) if total > 0 else 1
 
     cap = (
         f"<b>👑 Search: {search}\n"
-        f"🎬 Total Files: {total}\n"
-        f"📚 Collection: {collection.upper()}\n"
-        f"📄 Page: 1 / {total_pages}</b>\n\n"
+        f"🎬 Total: {total}\n"
+        f"📚 Source: {collection_type.upper()}\n"
+        f"📄 Page: 1/{total_pages}</b>\n\n"
     )
 
-    # Build navigation buttons
-    nav_btns = []
+    # Build buttons
+    buttons = []
     
-    # Prev and Next buttons
-    page_nav = []
-    page_nav.append(
-        InlineKeyboardButton(
-            f"📄 1/{total_pages}",
-            callback_data="pages"
-        )
-    )
+    # Navigation row
+    nav_row = [InlineKeyboardButton(f"📄 1/{total_pages}", callback_data="pages")]
     
-    if n_offset is not None:
-        page_nav.append(
-            InlineKeyboardButton(
-                "ɴᴇxᴛ »",
-                callback_data=f"navigate_{message.from_user.id}_{key}_{n_offset}_{collection}"
-            )
+    if next_offset:
+        nav_row.append(
+            InlineKeyboardButton("ɴᴇxᴛ »", callback_data=f"nav_{message.from_user.id}_{key}_{next_offset}_{collection_type}")
         )
     
-    if page_nav:
-        nav_btns.append(page_nav)
+    buttons.append(nav_row)
 
-    # Collection selection buttons
-    collection_btns = []
-    for coll in ["primary", "cloud", "archives"]:
-        btn_text = f"{'✅' if coll == collection else '📂'} {coll.upper()}"
-        collection_btns.append(
+    # Collection row
+    coll_row = []
+    for coll in ["primary", "cloud", "archive"]:
+        emoji = "✅" if coll == collection_type else "📂"
+        coll_row.append(
             InlineKeyboardButton(
-                btn_text,
-                callback_data=f"collection_{message.from_user.id}_{key}_{coll}"
+                f"{emoji} {coll.upper()[:3]}",
+                callback_data=f"coll_{message.from_user.id}_{key}_{coll}"
             )
         )
-    nav_btns.append(collection_btns)
+    buttons.append(coll_row)
 
     # Close button
-    nav_btns.append([InlineKeyboardButton("❌ ᴄʟᴏsᴇ", callback_data="close_data")])
+    buttons.append([InlineKeyboardButton("❌ ᴄʟᴏsᴇ", callback_data="close_data")])
 
-    # Send result directly
+    # Send instantly
     k = await message.reply(
         cap + files_text,
-        reply_markup=InlineKeyboardMarkup(nav_btns),
+        reply_markup=InlineKeyboardMarkup(buttons),
         disable_web_page_preview=True,
         parse_mode=enums.ParseMode.HTML
     )
