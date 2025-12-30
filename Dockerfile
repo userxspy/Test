@@ -3,7 +3,7 @@
 # Python 3.11 | Fast | Stable | Koyeb-safe
 # ==========================================
 
-FROM python:3.11-slim
+FROM python:3.10-slim
 
 # ------------------------------
 # Runtime Environment Optimizations
