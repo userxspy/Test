@@ -1,0 +1,114 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+.github/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyo
+*.pyd
+.pytype/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+virtualenv/
+pipenv/
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# Documentation
+README.md
+*.md
+docs/
+LICENSE
+CONTRIBUTING.md
+
+# Logs & Temporary
+*.log
+logs/
+*.tmp
+.DS_Store
+Thumbs.db
+restart.txt
+*.bak
+*.cache
+
+# Database (if local)
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+.docker/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+azure-pipelines.yml
+Jenkinsfile
+
+# Testing
+tests/
+test/
+*.test.py
+pytest.ini
+tox.ini
+.tox/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# Environment files (SECURITY!)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+config.ini
+
+# OS specific
+desktop.ini
+ehthumbs.db
+Icon?
+
+# Backup files
+*.backup
+*.old
+*.orig
