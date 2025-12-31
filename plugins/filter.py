@@ -202,13 +202,16 @@ async def navigate_page(bot, query):
     if not search:
         return await query.answer("Search expired!", show_alert=True)
 
-    # Get results
-    files, next_offset, total = await get_search_results(
+    # Get results - NOW WITH 4 RETURN VALUES
+    files, next_offset, total, actual_source = await get_search_results(
         search,
         max_results=MAX_BTN,
         offset=offset,
         collection_type=collection_type
     )
+    
+    # Use actual source for display
+    collection_type = actual_source
     
     if not files:
         return await query.answer("No more results!", show_alert=True)
@@ -313,13 +316,16 @@ async def switch_collection(bot, query):
     if not search:
         return await query.answer("Search expired!", show_alert=True)
 
-    # Search in new collection from start
-    files, next_offset, total = await get_search_results(
+    # Search in new collection from start - NOW WITH 4 RETURN VALUES
+    files, next_offset, total, actual_source = await get_search_results(
         search,
         max_results=MAX_BTN,
         offset=0,
         collection_type=collection_type
     )
+    
+    # Use actual source for display
+    collection_type = actual_source
     
     if not files:
         return await query.answer(f"No results in {collection_type.upper()}!", show_alert=True)
@@ -407,8 +413,8 @@ async def auto_filter(client, msg, collection_type="all"):
 
     search = message.text.strip()
     
-    # Ultra-fast direct search (NO intermediate message)
-    files, next_offset, total = await get_search_results(
+    # Ultra-fast direct search (NO intermediate message) - NOW WITH 4 RETURN VALUES
+    files, next_offset, total, actual_source = await get_search_results(
         search,
         max_results=MAX_BTN,
         offset=0,
@@ -436,26 +442,10 @@ async def auto_filter(client, msg, collection_type="all"):
 
     total_pages = math.ceil(total / MAX_BTN) if total > 0 else 1
 
-    # ✅ Determine which collection actually returned results
-    # Database's cascade will stop at first match, so we need to detect it
-    actual_collection = "primary"  # Default
-    
-    # If we searched with "all", the database returned from one specific collection
-    # We need to preserve that info for pagination
-    if collection_type == "all":
-        # The database cascade returns results from the first non-empty collection
-        # Since we can't know which one without checking, we'll use a smart detection
-        # For now, we'll check the first file's presence in each collection
-        # But for simplicity, we'll just use "primary" as the active collection for navigation
-        # The user can still switch collections using buttons
-        actual_collection = "primary"
-    else:
-        actual_collection = collection_type
-
     cap = (
         f"<b>👑 Search: {search}\n"
         f"🎬 Total: {total}\n"
-        f"📚 Source: {actual_collection.upper()}\n"
+        f"📚 Source: {actual_source.upper()}\n"
         f"📄 Page: 1/{total_pages}</b>\n\n"
     )
 
@@ -467,7 +457,7 @@ async def auto_filter(client, msg, collection_type="all"):
     
     if next_offset:
         nav_row.append(
-            InlineKeyboardButton("ɴᴇxᴛ »", callback_data=f"nav_{message.from_user.id}_{key}_{next_offset}_{actual_collection}")
+            InlineKeyboardButton("ɴᴇxᴛ »", callback_data=f"nav_{message.from_user.id}_{key}_{next_offset}_{actual_source}")
         )
     
     buttons.append(nav_row)
@@ -475,7 +465,7 @@ async def auto_filter(client, msg, collection_type="all"):
     # Collection row - ALWAYS SHOW
     coll_row = []
     for coll in ["primary", "cloud", "archive"]:
-        emoji = "✅" if coll == actual_collection else "📂"
+        emoji = "✅" if coll == actual_source else "📂"
         coll_row.append(
             InlineKeyboardButton(
                 f"{emoji} {coll.upper()[:3]}",
