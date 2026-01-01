@@ -103,7 +103,8 @@ async def group_search(client, message):
             if not m.user.is_bot:
                 mentions.append(f"<a href='tg://user?id={m.user.id}'>\u2063</a>")
         
-        await message.reply(f"✅ Report sent to admins!{''.join(mentions)}")
+        admins_text = "".join(mentions)
+        await message.reply(f"✅ Report sent to admins!{admins_text}")
         return
 
     # 4. Link Blocking (Fast Regex)
@@ -249,12 +250,15 @@ async def nav_handler(client, query):
     total_pages = math.ceil(total / MAX_BTN)
     curr_page = (int(offset) // MAX_BTN) + 1
     
+    # 🔥 FIXED HERE: Using variable instead of joining inside f-string
+    files_text = "\n\n".join(list_items)
+
     cap = (
         f"<b>👑 Search: {search}\n"
         f"🎬 Total: {total}\n"
         f"📚 Source: {act_src.upper()}\n"
         f"📄 Page: {curr_page}/{total_pages}</b>\n\n"
-        f"{'\n\n'.join(list_items)}"
+        f"{files_text}"
     )
 
     # Build Buttons
@@ -318,12 +322,15 @@ async def coll_handler(client, query):
     
     total_pages = math.ceil(total / MAX_BTN)
     
+    # 🔥 FIXED HERE: Using variable instead of joining inside f-string
+    files_text = "\n\n".join(list_items)
+
     cap = (
         f"<b>👑 Search: {search}\n"
         f"🎬 Total: {total}\n"
         f"📚 Source: {act_src.upper()}\n"
         f"📄 Page: 1/{total_pages}</b>\n\n"
-        f"{'\n\n'.join(list_items)}"
+        f"{files_text}"
     )
 
     # Build Buttons
