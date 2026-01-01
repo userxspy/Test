@@ -1,6 +1,7 @@
 import os
 import qrcode
 import asyncio
+import traceback
 from datetime import datetime, timedelta
 from hydrogram import Client, filters, enums
 from hydrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
@@ -198,7 +199,7 @@ async def prm_list(c, m):
     await msg.edit(text)
 
 # =========================
-# 🔘 CALLBACKS
+# 🔘 CALLBACKS (FIXED & DEBUGGED)
 # =========================
 
 @Client.on_callback_query(filters.regex("^buy_prem$"))
@@ -206,16 +207,21 @@ async def buy_callback(c, q):
     await q.message.edit(
         "💎 **Select Plan Duration**\n\n"
         "Send the number of days you want to buy (e.g. `30`).\n"
-        "Price: ₹1/day\n\n"
+        f"Price: ₹{PRE_DAY_AMOUNT}/day\n\n"
         "⏳ Timeout: 60s"
     )
     
     try:
+        # 1. Listen for Days
         resp = await c.listen(q.message.chat.id, timeout=60)
-        days = int(resp.text)
+        try:
+            days = int(resp.text)
+        except ValueError:
+            return await q.message.reply("❌ Invalid Number! Please send numeric days (e.g., 30).")
+
         amount = days * int(PRE_DAY_AMOUNT)
         
-        # QR Code Generation
+        # 2. QR Code Generation
         uri = f"upi://pay?pa={UPI_ID}&pn={UPI_NAME}&am={amount}&cu=INR"
         img = qrcode.make(uri)
         path = f"qr_{q.from_user.id}.png"
@@ -225,19 +231,28 @@ async def buy_callback(c, q):
             path,
             caption=f"💳 **Pay ₹{amount}**\n\nScan & Pay. Then send screenshot here.\n\n⏳ Timeout: 5 mins"
         )
-        os.remove(path)
         
-        # Receipt Listener
+        # Safe Remove
+        try: os.remove(path)
+        except: pass
+        
+        # 3. Receipt Listener (FIXED)
+        # Added traceback to catch hidden errors
         receipt = await c.listen(q.message.chat.id, filters.photo, timeout=300)
         
-        # Forward to Admin
+        # 4. Forward to Admin
         cap = f"#Payment\n👤: {q.from_user.mention} (`{q.from_user.id}`)\n💰: ₹{amount} ({days} days)\ncmd: `/add_prm {q.from_user.id} {days}d`"
         try:
-            await receipt.copy(RECEIPT_SEND_USERNAME, caption=cap) # Use Copy instead of Forward for privacy
+            await receipt.copy(RECEIPT_SEND_USERNAME, caption=cap)
             await q.message.reply("✅ **Sent for Verification!**\nAdmin will activate shortly.")
         except Exception as e:
-            await q.message.reply(f"❌ Error sending receipt. Contact Admin manually.\nError: {e}")
+            logger.error(f"Receipt Send Error: {e}")
+            await q.message.reply(f"❌ Error sending receipt to Admin.\nContact manually: {RECEIPT_SEND_USERNAME}")
 
-    except Exception:
-        await q.message.reply("⏳ **Timeout or Invalid Input.** Try again.")
+    except asyncio.TimeoutError:
+        await q.message.reply("⏳ **Timeout!** Process cancelled.")
+    except Exception as e:
+        # 🔥 असली एरर यहाँ प्रिंट होगी
+        traceback.print_exc()
+        await q.message.reply(f"❌ **Error Occurred:** `{str(e)}`\nTry again later.")
 
