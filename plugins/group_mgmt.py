@@ -60,13 +60,19 @@ async def report_message(client, message):
     if reported_msg.from_user and reported_msg.from_user.id == reporter.id:
         return await message.reply("❌ You cannot report your own message!")
     
-    # Get all admins (including those who reported - they can report too)
+    # Get all admins - FIXED: Use filter parameter correctly
     admins = []
     admin_ids = []
-    async for member in client.get_chat_members(chat_id, enums.ChatMembersFilter.ADMINISTRATORS):
-        if not member.user.is_bot:
-            admins.append(member.user)
-            admin_ids.append(member.user.id)
+    try:
+        async for member in client.get_chat_members(chat_id, filter=enums.ChatMembersFilter.ADMINISTRATORS):
+            if not member.user.is_bot:
+                admins.append(member.user)
+                admin_ids.append(member.user.id)
+    except Exception as e:
+        return await message.reply(
+            "❌ Failed to get admin list!\n"
+            f"Error: {str(e)}"
+        )
     
     if not admins:
         return await message.reply("❌ No admins found!")
@@ -201,11 +207,14 @@ async def admin_mention_alert(client, message):
     if await is_admin(client, chat_id, user_id):
         return
     
-    # Get all admins
+    # Get all admins - FIXED: Use filter parameter correctly
     admins = []
-    async for member in client.get_chat_members(chat_id, enums.ChatMembersFilter.ADMINISTRATORS):
-        if not member.user.is_bot:
-            admins.append(member.user.id)
+    try:
+        async for member in client.get_chat_members(chat_id, filter=enums.ChatMembersFilter.ADMINISTRATORS):
+            if not member.user.is_bot:
+                admins.append(member.user.id)
+    except:
+        return
     
     # Send hidden mention to all admins
     hidden = "".join(f"[\u2064](tg://user?id={i})" for i in admins)
@@ -344,6 +353,266 @@ async def blacklist_filter(client, message):
             if warn_on:
                 await warn_user(message.from_user.id, message.chat.id)
             return
+
+# =========================
+# NOTES SYSTEM
+# =========================
+
+@Client.on_message(filters.group & filters.command("save"))
+async def save_note(client, message):
+    """
+    Save a note
+    Usage: /save <notename> <content>
+    or reply to a message with /save <notename>
+    """
+    if not await is_admin(client, message.chat.id, message.from_user.id):
+        return await message.reply("❌ Admin only command!")
+    
+    # Check if replying to a message
+    if message.reply_to_message:
+        if len(message.command) < 2:
+            return await message.reply(
+                "❌ **Invalid Usage!**\n\n"
+                "**Example:** Reply to a message with `/save welcome`"
+            )
+        
+        note_name = message.command[1].lower()
+        replied_msg = message.reply_to_message
+        
+        # Get note content from replied message
+        if replied_msg.text:
+            note_content = replied_msg.text
+            note_type = "text"
+        elif replied_msg.photo:
+            note_content = replied_msg.photo.file_id
+            note_type = "photo"
+            note_caption = replied_msg.caption or ""
+        elif replied_msg.video:
+            note_content = replied_msg.video.file_id
+            note_type = "video"
+            note_caption = replied_msg.caption or ""
+        elif replied_msg.document:
+            note_content = replied_msg.document.file_id
+            note_type = "document"
+            note_caption = replied_msg.caption or ""
+        elif replied_msg.sticker:
+            note_content = replied_msg.sticker.file_id
+            note_type = "sticker"
+            note_caption = ""
+        elif replied_msg.animation:
+            note_content = replied_msg.animation.file_id
+            note_type = "animation"
+            note_caption = replied_msg.caption or ""
+        else:
+            return await message.reply("❌ Unsupported message type!")
+        
+    else:
+        # Save text note from command
+        if len(message.command) < 3:
+            return await message.reply(
+                "❌ **Invalid Usage!**\n\n"
+                "**Examples:**\n"
+                "• `/save rules Group rules here`\n"
+                "• Reply to a message with `/save welcome`"
+            )
+        
+        note_name = message.command[1].lower()
+        note_content = message.text.split(None, 2)[2]
+        note_type = "text"
+        note_caption = ""
+    
+    # Save to database
+    data = await db.get_settings(message.chat.id) or {}
+    notes = data.get("notes", {})
+    
+    notes[note_name] = {
+        "content": note_content,
+        "type": note_type,
+        "caption": note_caption if note_type != "text" else "",
+        "added_by": message.from_user.id,
+        "added_at": get_ist_time()
+    }
+    
+    data["notes"] = notes
+    await db.update_settings(message.chat.id, data)
+    
+    await message.reply(
+        f"✅ **Note Saved!**\n\n"
+        f"**Name:** `#{note_name}`\n"
+        f"**Type:** {note_type.title()}\n"
+        f"**Added by:** {message.from_user.mention}\n"
+        f"⏰ {get_ist_time()} IST\n\n"
+        f"**Get it with:** `#{note_name}` or `/get {note_name}`"
+    )
+
+@Client.on_message(filters.group & filters.command("get"))
+async def get_note_cmd(client, message):
+    """
+    Get a note by command
+    Usage: /get <notename>
+    """
+    if len(message.command) < 2:
+        return await message.reply(
+            "❌ **Invalid Usage!**\n\n"
+            "**Example:** `/get rules`"
+        )
+    
+    note_name = message.command[1].lower()
+    await send_note(client, message, note_name)
+
+@Client.on_message(filters.group & filters.regex(r"^#[a-zA-Z0-9_]+$"))
+async def get_note_hashtag(client, message):
+    """
+    Get a note by hashtag
+    Usage: #notename
+    """
+    note_name = message.text[1:].lower()  # Remove # from start
+    await send_note(client, message, note_name)
+
+async def send_note(client, message, note_name):
+    """Helper function to send a note"""
+    data = await db.get_settings(message.chat.id) or {}
+    notes = data.get("notes", {})
+    
+    if note_name not in notes:
+        return await message.reply(
+            f"❌ **Note Not Found!**\n\n"
+            f"`#{note_name}` doesn't exist.\n\n"
+            f"Use `/notes` to see all saved notes."
+        )
+    
+    note = notes[note_name]
+    note_type = note["type"]
+    note_content = note["content"]
+    note_caption = note.get("caption", "")
+    
+    try:
+        if note_type == "text":
+            await message.reply(note_content)
+        elif note_type == "photo":
+            await message.reply_photo(note_content, caption=note_caption)
+        elif note_type == "video":
+            await message.reply_video(note_content, caption=note_caption)
+        elif note_type == "document":
+            await message.reply_document(note_content, caption=note_caption)
+        elif note_type == "sticker":
+            await message.reply_sticker(note_content)
+        elif note_type == "animation":
+            await message.reply_animation(note_content, caption=note_caption)
+    except Exception as e:
+        await message.reply(
+            f"❌ **Failed to send note!**\n\n"
+            f"Note might be too old or file deleted.\n"
+            f"Error: `{str(e)}`"
+        )
+
+@Client.on_message(filters.group & filters.command("notes"))
+async def list_notes(client, message):
+    """
+    List all saved notes
+    Usage: /notes
+    """
+    data = await db.get_settings(message.chat.id) or {}
+    notes = data.get("notes", {})
+    
+    if not notes:
+        return await message.reply(
+            "📭 **No Notes Saved**\n\n"
+            "Save your first note with:\n"
+            "`/save <name> <content>`"
+        )
+    
+    # Build notes list
+    notes_text = "📝 **Saved Notes**\n" + "━" * 30 + "\n\n"
+    
+    for idx, (name, note) in enumerate(notes.items(), 1):
+        note_type = note["type"]
+        added_by = note.get("added_by", "Unknown")
+        
+        # Get emoji for type
+        type_emoji = {
+            "text": "📄",
+            "photo": "🖼️",
+            "video": "🎥",
+            "document": "📎",
+            "sticker": "🎭",
+            "animation": "🎬"
+        }.get(note_type, "📝")
+        
+        notes_text += f"{idx}. {type_emoji} `#{name}` - {note_type.title()}\n"
+    
+    notes_text += "\n" + "━" * 30
+    notes_text += f"\n**Total Notes:** {len(notes)}"
+    notes_text += f"\n\n**Usage:**\n• `#{name}` - Get note\n• `/get {name}` - Get note"
+    notes_text += f"\n\n⏰ {get_ist_time()} IST"
+    
+    await message.reply(notes_text)
+
+@Client.on_message(filters.group & filters.command("clear"))
+async def delete_note(client, message):
+    """
+    Delete a note
+    Usage: /clear <notename>
+    """
+    if not await is_admin(client, message.chat.id, message.from_user.id):
+        return await message.reply("❌ Admin only command!")
+    
+    if len(message.command) < 2:
+        return await message.reply(
+            "❌ **Invalid Usage!**\n\n"
+            "**Example:** `/clear rules`"
+        )
+    
+    note_name = message.command[1].lower()
+    
+    data = await db.get_settings(message.chat.id) or {}
+    notes = data.get("notes", {})
+    
+    if note_name not in notes:
+        return await message.reply(
+            f"❌ **Note Not Found!**\n\n"
+            f"`#{note_name}` doesn't exist."
+        )
+    
+    notes.pop(note_name)
+    data["notes"] = notes
+    await db.update_settings(message.chat.id, data)
+    
+    await message.reply(
+        f"🗑️ **Note Deleted!**\n\n"
+        f"**Name:** `#{note_name}`\n"
+        f"**Deleted by:** {message.from_user.mention}\n"
+        f"⏰ {get_ist_time()} IST"
+    )
+
+@Client.on_message(filters.group & filters.command("clearall"))
+async def delete_all_notes(client, message):
+    """
+    Delete all notes
+    Usage: /clearall confirm
+    """
+    if not await is_admin(client, message.chat.id, message.from_user.id):
+        return await message.reply("❌ Admin only command!")
+    
+    if len(message.command) < 2 or message.command[1].lower() != "confirm":
+        return await message.reply(
+            "⚠️ **Warning: This will delete ALL notes!**\n\n"
+            "To confirm, use:\n"
+            "`/clearall confirm`"
+        )
+    
+    data = await db.get_settings(message.chat.id) or {}
+    notes_count = len(data.get("notes", {}))
+    
+    data["notes"] = {}
+    await db.update_settings(message.chat.id, data)
+    
+    await message.reply(
+        f"🗑️ **All Notes Deleted!**\n\n"
+        f"**Total Deleted:** {notes_count}\n"
+        f"**Deleted by:** {message.from_user.mention}\n"
+        f"⏰ {get_ist_time()} IST"
+    )
 
 # =========================
 # DLINK (DELAYED DELETE) - IMPROVED
@@ -547,6 +816,14 @@ async def help_command(client, message):
         "🚨 `/report` or `/Report` – Report a message (reply to message)\n"
         "📣 `@admin` or `@admins` – Alert all admins\n\n"
 
+        "📝 **Notes System:**\n"
+        "💾 `/save <name> <text>` – Save a text note\n"
+        "💾 `/save <name>` (reply) – Save message as note\n"
+        "📖 `#notename` or `/get <name>` – Get a note\n"
+        "📋 `/notes` – List all notes\n"
+        "🗑️ `/clear <name>` – Delete a note\n"
+        "🗑️ `/clearall confirm` – Delete all notes\n\n"
+
         "👮 **Moderation (Reply Required):**\n"
         "🔇 `/mute` – Mute a user (10 minutes)\n"
         "🔊 `/unmute` – Unmute a user\n"
@@ -576,6 +853,7 @@ async def help_command(client, message):
         "• Some commands must be used as a reply\n"
         "• `/help` is admin-only\n"
         "• Reports are sent to admin PMs\n"
+        "• Notes support text, photos, videos, documents, stickers\n"
     )
 
     await message.reply(help_text)
