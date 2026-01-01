@@ -20,9 +20,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # 3. Upgrade Pip & Install Requirements
-COPY requirements.txt .
+COPY requirement.txt .
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install -r requirements.txt
+    pip install -r requirement.txt
 
 # 4. Copy Application Code
 COPY . .
