@@ -1,16 +1,15 @@
 import asyncio
 from google import genai
-from hydrogram import Client, filters, enums
+from hydrogram import Client, filters
 from info import GEMINI_API_KEY
 
 # ==========================================
-# 🧠 AI CONFIGURATION (Gemini 3 Flash ⚡)
+# 🧠 GEMINI CONFIG (STABLE)
 # ==========================================
 
-if GEMINI_API_KEY:
-    ai_client = genai.Client(api_key=GEMINI_API_KEY)
-else:
-    ai_client = None
+GEMINI_MODEL = "gemini-1.5-flash"
+
+ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 # ==========================================
 # 🗣️ AI CHAT COMMAND
@@ -19,50 +18,50 @@ else:
 @Client.on_message(filters.command(["ask", "ai"]))
 async def ask_ai(client, message):
     if not ai_client:
-        return await message.reply("❌ **AI Error:** API Key missing.")
+        return await message.reply("❌ AI API Key missing.")
 
-    if len(message.command) < 2 and not message.reply_to_message:
+    prompt = None
+
+    # Direct command: /ask hello
+    if len(message.command) > 1:
+        prompt = message.text.split(None, 1)[1]
+
+    # Reply to text or caption
+    elif message.reply_to_message:
+        prompt = (
+            message.reply_to_message.text
+            or message.reply_to_message.caption
+        )
+
+    if not prompt or not prompt.strip():
         return await message.reply(
-            "⚡ **Gemini 3 Flash**\n\n"
+            "⚡ **Gemini AI**\n\n"
             "Usage:\n"
             "• `/ask Who is Batman?`\n"
-            "• Reply to text with `/ask`"
+            "• Reply to text/caption with `/ask`"
         )
 
-    if len(message.command) > 1:
-        question = message.text.split(None, 1)[1]
-    elif message.reply_to_message and message.reply_to_message.text:
-        question = message.reply_to_message.text
-    else:
-        return await message.reply("❌ कृपया सवाल पूछें।")
-
-    status = await message.reply("⚡ Thinking (Flash Mode)...")
-    await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)
+    status = await message.reply("⚡ Thinking...")
 
     try:
-        loop = asyncio.get_event_loop()
-        
-        # 🔥 USING LATEST GEMINI 3 FLASH MODEL
+        loop = asyncio.get_running_loop()
+
         response = await loop.run_in_executor(
-            None, 
+            None,
             lambda: ai_client.models.generate_content(
-                model='gemini-3-flash-preview', 
-                contents=question
+                model=GEMINI_MODEL,
+                contents=prompt
             )
         )
-        
-        if not response.text:
-            return await status.edit("❌ Empty Response.")
 
-        answer = response.text
+        text = response.text or "❌ No response from AI."
 
-        if len(answer) > 4000:
-            for i in range(0, len(answer), 4000):
-                await message.reply(answer[i:i+4000], parse_mode=enums.ParseMode.MARKDOWN)
+        if len(text) > 4000:
+            for i in range(0, len(text), 4000):
+                await message.reply(text[i:i + 4000])
             await status.delete()
         else:
-            await status.edit(answer, parse_mode=enums.ParseMode.MARKDOWN)
+            await status.edit(text)
 
     except Exception as e:
-        await status.edit(f"❌ **Error:** `{str(e)}`")
-
+        await status.edit(f"❌ Error: `{e}`")
