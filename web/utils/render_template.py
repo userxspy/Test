@@ -8,7 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────
-# 🎨 STREAMING TEMPLATE (Pro UI + MX Player)
+# 🎨 STREAMING TEMPLATE (Netflix Style - Clean Dark)
 # ─────────────────────────────────────────────
 watch_tmplt = """
 <!DOCTYPE html>
@@ -17,16 +17,15 @@ watch_tmplt = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{heading}</title>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap">
     <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
     <style>
         :root {{
-            --primary: #818cf8;
-            --primary-hover: #6366f1;
-            --bg-color: #0f172a;
-            --player-bg: #1e293b;
-            --text-main: #f8fafc;
-            --text-sub: #94a3b8;
+            --bg-color: #141414; /* Netflix-like deep dark background */
+            --surface-color: #1f1f1f;
+            --primary-accent: #818cf8; /* Keep bot's accent color for consistency */
+            --text-main: #ffffff;
+            --text-sub: #a3a3a3;
         }}
         
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -39,32 +38,36 @@ watch_tmplt = """
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: center;
+            padding: 1rem;
         }}
         
-        .header {{
+        .main-container {{
             width: 100%;
-            padding: 1.5rem;
-            background: var(--player-bg);
-            text-align: center;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            margin-bottom: 2rem;
+            max-width: 1100px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }}
+
+        .header {{
+            padding: 0.5rem 0;
         }}
         
         .file-title {{
-            font-size: 1.1rem;
-            font-weight: 600;
-            color: var(--primary);
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-main);
             word-break: break-all;
-            padding: 0 1rem;
+            line-height: 1.4;
         }}
 
         .player-wrapper {{
-            width: 95%;
-            max-width: 1000px;
-            background: var(--player-bg);
-            border-radius: 1rem;
+            width: 100%;
+            border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            background: #000;
         }}
 
         .video-container {{
@@ -72,48 +75,62 @@ watch_tmplt = """
             width: 100%;
         }}
 
-        .controls-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        /* Customizing Plyr to blend with dark theme */
+        .plyr--video {{
+            --plyr-color-main: var(--primary-accent);
+            --plyr-video-background: #000;
+        }}
+
+        .actions-container {{
+            display: flex;
             gap: 1rem;
-            padding: 1.5rem;
+            margin-top: 0.5rem;
+            flex-wrap: wrap;
         }}
 
         .btn {{
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 0.5rem;
-            padding: 0.8rem;
-            border-radius: 0.5rem;
+            gap: 0.75rem;
+            padding: 0.9rem 1.5rem;
+            border-radius: 8px;
             text-decoration: none;
-            font-weight: 500;
-            transition: all 0.2s;
-            font-size: 0.9rem;
-            border: 1px solid rgba(255,255,255,0.1);
+            font-weight: 600;
+            font-size: 1rem;
+            transition: all 0.2s ease;
             cursor: pointer;
+            border: none;
+            flex: 1;
+            min-width: 200px;
         }}
 
-        .btn-primary {{ background: var(--primary); color: white; border: none; }}
-        .btn-primary:hover {{ background: var(--primary-hover); transform: translateY(-2px); }}
+        /* Primary Button (Download) - Prominent */
+        .btn-primary {{
+            background: var(--text-main);
+            color: var(--bg-color);
+        }}
+        .btn-primary:hover {{
+            background: #e6e6e6;
+            transform: translateY(-2px);
+        }}
         
-        .btn-secondary {{ background: rgba(255,255,255,0.05); color: var(--text-sub); }}
-        .btn-secondary:hover {{ background: rgba(255,255,255,0.1); color: white; }}
-
-        .footer {{
-            margin-top: auto;
-            padding: 2rem;
-            color: var(--text-sub);
-            font-size: 0.85rem;
-            text-align: center;
+        /* Secondary Button (Copy Link) - Subtle */
+        .btn-secondary {{
+            background: rgba(255, 255, 255, 0.15);
+            color: var(--text-main);
+            backdrop-filter: blur(10px);
+        }}
+        .btn-secondary:hover {{
+            background: rgba(255, 255, 255, 0.25);
         }}
 
         /* Toast Notification */
         #toast {{
             visibility: hidden;
             min-width: 250px;
-            background-color: #333;
-            color: #fff;
+            background-color: var(--surface-color);
+            color: var(--text-main);
             text-align: center;
             border-radius: 8px;
             padding: 16px;
@@ -123,7 +140,8 @@ watch_tmplt = """
             bottom: 30px;
             transform: translateX(-50%);
             font-size: 14px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
         }}
         #toast.show {{ visibility: visible; -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s; animation: fadein 0.5s, fadeout 0.5s 2.5s; }}
         
@@ -133,52 +151,41 @@ watch_tmplt = """
 </head>
 <body>
 
-    <div class="header">
-        <div class="file-title">{file_name}</div>
-    </div>
-
-    <div class="player-wrapper">
-        <div class="video-container">
-            <video id="player" playsinline controls>
-                <source src="{src}" type="{mime_type}" />
-            </video>
+    <div class="main-container">
+        <div class="header">
+            <div class="file-title">{file_name}</div>
         </div>
 
-        <div class="controls-grid">
-            <a href="{src}" class="btn btn-primary">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                Download
-            </a>
-            
-            <a href="vlc://{src}" class="btn btn-secondary">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                VLC Player
-            </a>
+        <div class="player-wrapper">
+            <div class="video-container">
+                <video id="player" playsinline>
+                    <source src="{src}" type="{mime_type}" />
+                </video>
+            </div>
+        </div>
 
-            <a href="intent:{src}#Intent;package=com.mxtech.videoplayer.ad;S.title={file_name};end" class="btn btn-secondary">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3z"></path></svg>
-                MX Player
+        <div class="actions-container">
+            <a href="{src}" class="btn btn-primary">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Download Video
             </a>
 
             <button onclick="copyLink()" class="btn btn-secondary">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                Copy Link
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                Copy Stream Link
             </button>
         </div>
-    </div>
-
-    <div class="footer">
-        <p>⚠️ Video buffering? Use <b>VLC</b> or <b>MX Player</b> for smooth playback.</p>
-        <p style="margin-top: 0.5rem; font-size: 0.75rem; opacity: 0.7;">Powered by Auto Filter Bot</p>
     </div>
 
     <div id="toast">Link Copied to Clipboard!</div>
 
     <script src="https://cdn.plyr.io/3.7.8/plyr.js"></script>
     <script>
+        // Initialize Plyr player WITHOUT volume controls
         const player = new Plyr('#player', {{
-            controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings', 'pip', 'fullscreen'],
-            settings: ['speed']
+            controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'settings', 'pip', 'fullscreen'],
+            settings: ['speed'],
+            hideControls: true, // Hide controls when idle for cinemtaic feel
         }});
 
         function copyLink() {{
@@ -226,13 +233,15 @@ async def media_watch(message_id):
                 mime_type=mime_type
             )
         else:
+            # Simplified Error Page for non-video files
             return f"""
-            <div style="text-align:center; padding:50px; font-family:sans-serif;">
-                <h1>⚠️ Not a Streamable Video</h1>
-                <p>This file type ({mime_type}) cannot be played in browser.</p>
-                <br>
-                <a href="{src}" style="padding:10px 20px; background:#818cf8; color:white; text-decoration:none; border-radius:5px;">Click to Download</a>
-            </div>
+            <body style="background:#141414; color:white; display:flex; align-items:center; justify-content:center; height:100vh; font-family:sans-serif;">
+                <div style="text-align:center; padding:30px; background:#1f1f1f; border-radius:12px;">
+                    <h2 style="margin-bottom:1rem;">⚠️ Not a Playable Video</h2>
+                    <p style="color:#a3a3a3; margin-bottom:1.5rem;">This file type ({mime_type}) cannot be streamed directly.</p>
+                    <a href="{src}" style="padding:12px 24px; background:white; color:#141414; text-decoration:none; border-radius:8px; font-weight:bold;">Download File</a>
+                </div>
+            </body>
             """
     except Exception as e:
         logger.error(f"Render Template Error: {e}")
