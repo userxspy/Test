@@ -19,12 +19,7 @@ async def offset_fix(offset, chunksize):
 
 class TGCustomYield:
     def __init__(self):
-        """ A custom method to stream files from telegram.
-        functions:
-            generate_file_properties: returns the properties for a media on a specific message contained in FileId class.
-            generate_media_session: returns the media session for the DC that contains the media file on the message.
-            yield_file: yield a file from telegram servers for streaming.
-        """
+        """ A custom method to stream files from telegram. """
         self.main_bot = temp.BOT
 
     @staticmethod
@@ -129,7 +124,6 @@ class TGCustomYield:
         media_session = await self.generate_media_session(client, media_msg)
 
         current_part = 1
-
         location = await self.get_location(data)
 
         r = await media_session.send(
@@ -145,24 +139,32 @@ class TGCustomYield:
                 chunk = r.bytes
                 if not chunk:
                     break
-                offset += chunk_size
+                
+                # Logic Fix: Properly handling slice for Last Part
                 if part_count == 1:
                     yield chunk[first_part_cut:last_part_cut]
                     break
+                
                 if current_part == 1:
                     yield chunk[first_part_cut:]
-                if 1 < current_part <= part_count:
+                elif current_part == part_count:
+                    # Fix: Original code missed slicing the last chunk
+                    yield chunk[:last_part_cut]
+                else:
                     yield chunk
 
-                r = await media_session.send(
-                    raw.functions.upload.GetFile(
-                        location=location,
-                        offset=offset,
-                        limit=chunk_size
-                    ),
-                )
-
+                # Prepare for next chunk
+                offset += chunk_size
                 current_part += 1
+                
+                if current_part <= part_count:
+                    r = await media_session.send(
+                        raw.functions.upload.GetFile(
+                            location=location,
+                            offset=offset,
+                            limit=chunk_size
+                        ),
+                    )
 
     async def download_as_bytesio(self, media_msg: Message):
         client = self.main_bot
@@ -184,7 +186,6 @@ class TGCustomYield:
 
         if isinstance(r, raw.types.upload.File):
             m_file = []
-            # m_file.name = file_name
             while True:
                 chunk = r.bytes
 
@@ -192,7 +193,6 @@ class TGCustomYield:
                     break
 
                 m_file.append(chunk)
-
                 offset += limit
 
                 r = await media_session.send(
@@ -204,3 +204,4 @@ class TGCustomYield:
                 )
 
             return m_file
+
